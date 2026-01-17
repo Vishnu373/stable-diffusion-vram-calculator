@@ -173,7 +173,7 @@ env\Scripts\activate
 pip install torch torchvision diffusers['torch'] transformers accelerate hf_xet
 ```
 
-### Google Colab Setup (with T4 GPU)
+### Google Colab Setup (with T4 GPU) (Recommended)
 1. Open the notebook in Google Colab
 2. Go to Runtime → Change runtime type → Select GPU (T4)
 3. Run all cells
