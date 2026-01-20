@@ -149,19 +149,9 @@ Where:
 - **VRAM_UNet** = (H/8)×(W/8)×745×2×3 + (H/8)×(W/8)×prompt_length×2
 - **VRAM_VAE_dec** = (H/8)×(W/8)×4×2 + H×W×3×2 + (3 × H×W×3×2)
 
-## ✅ Validation Results
-
-| Metric | Value |
-|--------|-------|
-| **Predicted VRAM** | 10.09 GB |
-| **Actual VRAM (nvidia-smi)** | 9.76 GB |
-| **Prediction Error** | ~0.33 GB |
-
-The formula slightly overestimates (conservative), which is ideal for planning GPU requirements.
-
 ## 🛠️ Setup Instructions
 
-### Local Setup (without GPU)
+### Local Setup
 ```bash
 # Create virtual environment
 python -m venv env
@@ -170,14 +160,17 @@ python -m venv env
 env\Scripts\activate
 
 # Install dependencies
-pip install torch torchvision diffusers['torch'] transformers accelerate hf_xet
+pip install -r requirements.txt
+
+# Run the file
+python main.py
 ```
 
 ### Google Colab Setup (with T4 GPU) (Recommended)
 1. Open the notebook in Google Colab
 2. Go to Runtime → Change runtime type → Select GPU (T4)
 3. Run all cells
-
+4. Use the main_colab.ipynb file
 
 
 ## 📚 Key Assumptions
