@@ -1,48 +1,8 @@
-"""
-GPU-vRAM Usage Estimation for Diffusion Models
-
-Objective:
-    Derive an analytical equation to estimate peak vRAM usage during inference 
-    for the `stable-diffusion-v1-5/stable-diffusion-v1-5` for arbitrary input image sizes.
-
-Background:
-    vRAM consumption during diffusion model inference differs significantly from model size on disk. 
-    Peak memory depends on:
-    - Model weights (fixed)
-    - Intermediate activations (vary with image dimensions and prompt length)
-    - Framework overhead (CUDA kernels, workspace buffers)
-    - Attention mechanism memory scaling (O(N²) with sequence length)
-
-Where:
-    - `H`, `W` = input image height and width
-    - `prompt_length` = tokenized prompt length
-
-Requirements:
-    - Analyze the architecture: Understand UNet, VAE, CLIP text encoder, and how tensors flow through the pipeline
-    - Account for precision: Assume `FP16` (2 bytes/parameter)
-    - Model fully on GPU: Ignore pipeline.enable_model_cpu_offload() in your equation
-    - Peak, not average: Find the stage with maximum memory allocation
-    - Document assumptions: Clearly state what you include/exclude (e.g., gradient storage, optimizer states)
-"""
-
-# Install dependencies (run in terminal):
-# pip install torch torchvision diffusers['torch'] transformers accelerate hf_xet
-
-"""
-Additional steps, I did:
-1. Created a virtual environment (python -m venv env)
-2. Activated the env (env\Scripts\activate)
-3. Changed the jupyter kernel to the env
-4. Run the pip installations (above cell) in terminal
-5. Loaded it google colab, used t4 gpu
-
-Step 1 to 2 was for local setup. Since, the device wasn't able to run the full code, switched to colab to see the results.
-"""
-
 import torch
 from diffusers import AutoPipelineForImage2Image
 from diffusers.utils import make_image_grid, load_image
 import subprocess
+import os
 
 # Load the Stable Diffusion pipeline
 pipeline = AutoPipelineForImage2Image.from_pretrained(
@@ -50,36 +10,72 @@ pipeline = AutoPipelineForImage2Image.from_pretrained(
 )
 pipeline = pipeline.to("cuda" if torch.cuda.is_available() else "cpu")
 
-# Uncomment this if you have limited GPU vRAM (although, this assignment can be done without any GPU use!)
-# pipeline.enable_model_cpu_offload()
 
-# remove following line if xFormers is not installed or you have PyTorch 2.0 or higher installed
-# pipeline.enable_xformers_memory_efficient_attention()
-
-
+# Get current GPU memory usage via nvidia-smi
 def get_gpu_memory_via_nvidia():
-    """Get current GPU memory usage via nvidia-smi"""
     result = subprocess.run(
         ['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'],
         capture_output=True, text=True
     )
     return int(result.stdout.strip()) / 1024
 
+def get_user_input(): 
+    print("\n" + "="*60)
+    print("VRAM Calculator - Image Input")
+    print("="*60)
+    print("Select mode:")
+    print("  [1] Single image")
+    print("  [2] Multiple images (batch)")
+    
+    while True:
+        mode = input("\nEnter mode (1 or 2): ").strip()
+        if mode in ['1', '2']:
+            break
+        print("Invalid input. Please enter 1 or 2.")
+    
+    img_src = []
+    
+    if mode == '1':
+        # Single image mode
+        print("\n--- Single Image Mode ---")
+        while True:
+            image_path = input("Enter image path: ").strip()
+            if os.path.isfile(image_path):
+                break
+            print(f"Error: File '{image_path}' not found. Please try again.")
+        
+        prompt = input("Enter prompt for this image: ").strip()
+        img_src.append({"url": image_path, "prompt": prompt})
+        
+    else:
+        # Multiple images mode
+        print("\n--- Batch Mode (Multiple Images) ---")
+        print("Enter image paths one by one. Type 'done' when finished.\n")
+        
+        while True:
+            image_path = input("Enter image path (or 'done' to finish): ").strip()
+            
+            if image_path.lower() == 'done':
+                if len(img_src) == 0:
+                    print("You must add at least one image. Please continue.")
+                    continue
+                break
+            
+            if not os.path.isfile(image_path):
+                print(f"Error: File '{image_path}' not found. Please try again.")
+                continue
+            
+            prompt = input("Enter prompt for this image: ").strip()
+            img_src.append({"url": image_path, "prompt": prompt})
+            print(f"✓ Added image {len(img_src)}\n")
+    
+    print(f"\n✓ Total images collected: {len(img_src)}")
+    print("="*60 + "\n")
+    return img_src
 
-# prepare image
-img_src = [{
-    "url": "./data/balloon--low-res.jpeg",
-    "prompt": "aerial view, colorful hot air balloon, lush green forest canopy, springtime, warm climate, vibrant foliage, soft sunlight, gentle shadow, white birds flying alongside, harmony, freedom, bright natural colors, serene atmosphere, highly detailed, realistic, photorealistic, cinematic lighting"
-}, {
-    'url': "./data/bench--high-res.jpg",
-    'prompt': "photorealistic, high resolution, realistic lighting, natural shadows, detailed textures, lush green grass, wooden bench with grain detail, expansive valley, agricultural fields, blue-toned mountains, fluffy cumulus clouds, wispy cirrus clouds, bright blue sky, clear sunny day, soft sunlight, tranquil atmosphere, cinematic realism"
-}, {
-    'url': "./data/groceries--low-res.jpg",
-    'prompt': "cartoon style, bold outlines, simplified shapes, vibrant colors, playful atmosphere, exaggerated proportions, stylized SUV trunk, whimsical paper grocery bags, fresh produce with bright highlights, baguette with cartoon detail, cheerful parking area, greenery with simplified textures, sunny day, lighthearted mood, 2D illustration, animated landscape aesthetic"
-}, {
-    'url': "./data/truck--high-res.jpg",
-    'prompt': "Michelangelo style, Renaissance painting, classical composition, rich earthy tones, detailed brushwork, divine atmosphere, expressive lighting, monumental presence, artistic grandeur, fresco-inspired texture, high contrast shadows, timeless aesthetic"
-}]
+
+# prepare image - get user input
+img_src = get_user_input()
 
 results = list()
 
@@ -116,7 +112,6 @@ for i, test_src in enumerate(img_src):
 #    watch -n 1.0 nvidia-smi
 #    ```
 #
-# You may modify this for loop according to your needs.
 for _src in img_src:
     init_image = load_image(_src.get('url'))
     prompt = _src.get('prompt')
@@ -125,17 +120,14 @@ for _src in img_src:
     image = pipeline(prompt, image=init_image, guidance_scale=5.0).images[0]
     results.append(make_image_grid([init_image, image], rows=1, cols=2))
 
-results[0].show()
-
+# Display all processed images
+for idx, result in enumerate(results):
+    print(f"\nDisplaying result {idx + 1}/{len(results)}")
+    result.show()
 
 # Nvidia smi after execution
 after_execution = get_gpu_memory_via_nvidia()
 print("GPU memory after execution: ", after_execution)
-
-
-# =============================================================================
-# Your Task: Derive a formula
-# =============================================================================
 
 """
 My understanding of Stable diffusion architecture:
@@ -226,7 +218,7 @@ For the image:
 - As we go down memory reduces and channel goes up. Reason being information gets compressed.
 - So, I decided to take average channels of the layers (Calculating each one is too complex.)
 
-A typical layer structure (got from hugging face github) {
+A typical layer structure (got from hugging face) {
     320,
     640,
     1280
@@ -318,15 +310,3 @@ print("My function prediction: ", total_mem_req)
 print("Nvidia SMI calculations: ", after_execution)
 print("Difference in error: ", total_mem_req - after_execution)
 
-
-"""
-Tips:
-- Although no GPU is needed to accomplish this task (analyze code/architecture)
-- Use PyTorch documentation and model architecture inspection
-
-Evaluation Criteria:
-- Correctness: Formula accounts for major memory consumers
-- Completeness: All image-dependent and prompt-dependent factors identified
-- Rigor: Derivation shows understanding of PyTorch memory model and diffusion architecture
-- Clarity: Equation is readable and well-documented
-"""
